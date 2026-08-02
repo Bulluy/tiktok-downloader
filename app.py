@@ -10,8 +10,9 @@ Fitur:
   - Pilih format: Video (MP4) atau Audio saja (MP3)
   - Opsi "tanpa watermark" (khusus TikTok, best-effort)
   - Progress bar per link (live, lewat polling AJAX)
-  - Preview thumbnail, judul, durasi, platform, dan nama kreator per item
-  - Link download langsung dari browser setelah selesai
+  - Video otomatis terdownload ke browser begitu selesai diproses
+    (tidak perlu klik apa-apa di daftar antrian)
+  - Hasil di antrian hanya menampilkan judul/caption video
 
 Instalasi (sekali saja):
     pip install flask yt-dlp
@@ -108,7 +109,7 @@ def jalankan_job(job_id, links, mode, no_watermark):
             return hook
 
         opsi = {
-            "outtmpl": os.path.join(DOWNLOAD_ROOT, "%(title).60s [%(id)s].%(ext)s"),
+            "outtmpl": os.path.join(DOWNLOAD_ROOT, "%(title).120s.%(ext)s"),
             "progress_hooks": [buat_hook(item)],
             "quiet": True,
             "no_warnings": True,
@@ -134,13 +135,10 @@ def jalankan_job(job_id, links, mode, no_watermark):
                 with yt_dlp.YoutubeDL({"quiet": True, "simulate": True, "no_warnings": True}) as ydl_probe:
                     info_awal = ydl_probe.extract_info(url, download=False)
 
-                with JOBS_LOCK:
-                    item["thumbnail"] = info_awal.get("thumbnail")
-                    item["duration"] = info_awal.get("duration")
-                    item["uploader"] = info_awal.get("uploader") or info_awal.get("uploader_id")
-                    item["platform"] = (info_awal.get("extractor_key") or "").replace(":", " ")
-                    judul = info_awal.get("title")
-                    if judul:
+                # Hanya ambil judul/caption — tidak ada metadata lain yang disimpan.
+                judul = info_awal.get("title")
+                if judul:
+                    with JOBS_LOCK:
                         item["title"] = judul
             except Exception:
                 pass
@@ -212,8 +210,7 @@ def start():
             "items": [
                 {
                     "url": u, "status": "menunggu", "percent": 0, "filename": None,
-                    "error": None, "thumbnail": None, "title": None,
-                    "duration": None, "uploader": None, "platform": None,
+                    "error": None, "title": None,
                 }
                 for u in links
             ],
@@ -288,7 +285,6 @@ body{
     overflow-x:hidden;
 }
 
-/* ambient duotone glow */
 body::before, body::after{
     content:"";
     position:fixed;
@@ -303,7 +299,6 @@ body::before, body::after{
 body::before{ background:var(--cyan); top:-160px; left:-160px; }
 body::after{ background:var(--pink); bottom:-180px; right:-160px; }
 
-/* fine grain texture for a bit of premium tactility */
 .grain{
     position:fixed;
     inset:0;
@@ -365,7 +360,6 @@ h1{
     max-width:46ch;
 }
 
-/* quiet feature strip */
 .feature-strip{
     display:flex;
     flex-wrap:wrap;
@@ -591,11 +585,9 @@ button.mulai:disabled{
 }
 
 .item{
-    display:flex;
-    gap:14px;
     border:1px solid var(--line);
     border-radius:14px;
-    padding:14px;
+    padding:14px 16px;
     margin-bottom:10px;
     background:var(--bg-soft);
     opacity:0;
@@ -607,89 +599,15 @@ button.mulai:disabled{
     to{ opacity:1; transform:translateY(0); }
 }
 
-.item .thumb-wrap{
-    width:42px;
-    height:62px;
-    border-radius:9px;
-    flex-shrink:0;
-    background:linear-gradient(160deg, var(--cyan), var(--pink));
-    opacity:.85;
-    overflow:hidden;
-    position:relative;
-}
-
-.item .thumb-wrap img{
-    width:100%;
-    height:100%;
-    object-fit:cover;
-    display:block;
-}
-
-.item .thumb-wrap .dur{
-    position:absolute;
-    bottom:2px;
-    right:2px;
-    background:rgba(0,0,0,.65);
-    color:#fff;
-    font-family:'JetBrains Mono',monospace;
-    font-size:8.5px;
-    padding:1px 4px;
-    border-radius:4px;
-    line-height:1.4;
-}
-
-.item.downloading .thumb-wrap{ animation:shimmer 1.6s linear infinite; }
-
-@keyframes shimmer{
-    0%{ filter:brightness(1); }
-    50%{ filter:brightness(1.35); }
-    100%{ filter:brightness(1); }
-}
-
-.item.error .thumb-wrap{ background:#402028; }
-.item.done .thumb-wrap{ background:linear-gradient(160deg, var(--ok), var(--cyan)); }
-
-.item .body{ flex:1; min-width:0; }
+.item.error{ border-color:rgba(255,45,106,.35); }
+.item.done{ border-color:rgba(47,230,166,.3); }
 
 .item .judul{
-    font-size:13px;
+    font-size:13.5px;
     font-weight:500;
     color:var(--ink);
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    margin-bottom:2px;
-}
-
-.item .meta-row{
-    display:flex;
-    gap:8px;
-    align-items:center;
-    margin-bottom:8px;
-    flex-wrap:wrap;
-}
-
-.item .uploader{
-    font-size:11px;
-    color:var(--muted);
-}
-
-.item .platform-badge{
-    font-family:'JetBrains Mono',monospace;
-    font-size:9.5px;
-    letter-spacing:.04em;
-    text-transform:uppercase;
-    color:var(--cyan);
-    border:1px solid rgba(37,244,238,.25);
-    border-radius:6px;
-    padding:2px 6px;
-}
-
-.item .url{
-    font-family:'JetBrains Mono',monospace;
-    font-size:10.5px;
-    color:var(--dim);
-    word-break:break-all;
+    margin-bottom:10px;
+    word-break:break-word;
 }
 
 .progress-bg{
@@ -723,19 +641,6 @@ button.mulai:disabled{
     color:#5c5c72;
 }
 
-.status-line a{
-    display:inline-flex;
-    align-items:center;
-    gap:5px;
-    color:var(--cyan);
-    font-weight:600;
-    text-decoration:none;
-    font-size:12.5px;
-    transition:.15s;
-}
-
-.status-line a:hover{ text-decoration:underline; gap:8px; }
-
 .pct{
     font-family:'JetBrains Mono',monospace;
     font-weight:500;
@@ -750,13 +655,6 @@ button.mulai:disabled{
 }
 
 #hasil{ display:none; }
-
-.empty-state{
-    text-align:center;
-    padding:20px 10px 6px;
-    color:var(--dim);
-    font-size:12.5px;
-}
 
 .foot-note{
     text-align:center;
@@ -782,7 +680,7 @@ button.mulai:disabled{
 
 <div class="eyebrow">Server lokal aktif</div>
 <h1>Clipgrab</h1>
-<p class="subtitle">Tempel link TikTok, Instagram, atau YouTube — satu per baris, pilih format, unduh langsung dari browser.</p>
+<p class="subtitle">Tempel link TikTok, Instagram, atau YouTube — satu per baris, pilih format, video otomatis terdownload begitu selesai.</p>
 
 <div class="feature-strip">
     <span>🎵 TikTok</span>
@@ -845,6 +743,8 @@ const daftarItem = document.getElementById("daftarItem");
 const jumlahItem = document.getElementById("jumlahItem");
 
 let pollTimer = null;
+// Menyimpan filename yang sudah dipicu auto-download, biar tidak double-trigger.
+const sudahDiunduh = new Set();
 
 btnPaste.addEventListener("click", async () => {
     try {
@@ -878,6 +778,7 @@ btnMulai.addEventListener("click", async () => {
     btnMulai.disabled = true;
     btnMulai.textContent = "Memulai...";
     daftarItem.innerHTML = "";
+    sudahDiunduh.clear();
     hasilCard.style.display = "block";
 
     try {
@@ -926,7 +827,8 @@ function pollStatus(jobId){
             return;
         }
 
-        renderItems(jobId, job.items);
+        renderItems(job.items);
+        picuAutoDownload(job.items);
 
         if(job.selesai){
             clearInterval(pollTimer);
@@ -937,15 +839,23 @@ function pollStatus(jobId){
 
 }
 
-function formatDurasi(detik){
-    if(!detik && detik !== 0) return "";
-    const d = Math.round(detik);
-    const m = Math.floor(d / 60);
-    const s = d % 60;
-    return m + ":" + String(s).padStart(2, "0");
+// Begitu sebuah item statusnya "done" dan punya filename, langsung
+// picu download di browser tanpa perlu user klik apa pun.
+function picuAutoDownload(items){
+    items.forEach(item => {
+        if(item.status === "done" && item.filename && !sudahDiunduh.has(item.filename)){
+            sudahDiunduh.add(item.filename);
+            const a = document.createElement("a");
+            a.href = "/file/" + encodeURIComponent(item.filename);
+            a.download = item.filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+    });
 }
 
-function renderItems(jobId, items){
+function renderItems(items){
 
     jumlahItem.textContent = items.length;
 
@@ -954,55 +864,29 @@ function renderItems(jobId, items){
         const cls = item.status === "error" ? "error" : (item.status === "done" ? "done" : (item.status === "downloading" ? "downloading" : ""));
         const persen = item.percent || 0;
 
-        let kanan = "";
+        let kanan;
 
-        if(item.status === "done" && item.filename){
-            kanan = `<a href="/file/${encodeURIComponent(item.filename)}" target="_blank">⬇ Download</a>`;
+        if(item.status === "done"){
+            kanan = `<span class="pct">Terunduh</span>`;
         }else if(item.status === "error"){
             kanan = `<span class="pct">Gagal</span>`;
         }else{
             kanan = `<span class="pct">${persen}%</span>`;
         }
 
-        const gambar = item.thumbnail
-            ? `<img src="${item.thumbnail}" referrerpolicy="no-referrer" loading="lazy" onerror="this.remove()">`
-            : "";
-
-        const durasiBadge = item.duration
-            ? `<span class="dur">${formatDurasi(item.duration)}</span>`
-            : "";
-
-        const judul = item.title
-            ? `<div class="judul">${escapeHTML(item.title)}</div>`
-            : "";
-
-        const uploader = item.uploader
-            ? `<span class="uploader">@${escapeHTML(item.uploader)}</span>`
-            : "";
-
-        const platformBadge = item.platform
-            ? `<span class="platform-badge">${escapeHTML(item.platform)}</span>`
-            : "";
+        const judul = item.title ? escapeHTML(item.title) : `Link ${idx + 1}`;
 
         return `
         <div class="item ${cls}" style="animation-delay:${idx * 60}ms">
-            <div class="thumb-wrap">${gambar}${durasiBadge}</div>
-            <div class="body">
-                ${judul}
-                <div class="meta-row">
-                    ${platformBadge}
-                    ${uploader}
-                </div>
-                <div class="url">${item.url}</div>
-                <div class="progress-bg">
-                    <div class="progress-fill" style="width:${persen}%"></div>
-                </div>
-                <div class="status-line">
-                    <span class="label">Link ${idx+1} · ${labelStatus(item.status)}</span>
-                    <span>${kanan}</span>
-                </div>
-                ${item.error ? `<div class="err-text">${item.error}</div>` : ""}
+            <div class="judul">${judul}</div>
+            <div class="progress-bg">
+                <div class="progress-fill" style="width:${persen}%"></div>
             </div>
+            <div class="status-line">
+                <span class="label">${labelStatus(item.status)}</span>
+                <span>${kanan}</span>
+            </div>
+            ${item.error ? `<div class="err-text">${escapeHTML(item.error)}</div>` : ""}
         </div>
         `;
 
