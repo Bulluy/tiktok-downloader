@@ -8,6 +8,9 @@ ketiga platform ini — tidak perlu library tambahan.)
 Fitur:
   - Tempel banyak link sekaligus (boleh campur platform)
   - Pilih format: Video (MP4) atau Audio saja (MP3)
+  - Pilih kualitas video (Terbaik / 1080p / 720p / 480p) — video dan
+    audio diunduh terpisah lalu digabung FFmpeg supaya resolusi
+    tinggi (mis. 1080p) tetap bisa didapat dari YouTube
   - Opsi "tanpa watermark" (khusus TikTok, best-effort)
   - Progress bar per link (live, lewat polling AJAX)
   - Video otomatis terdownload ke browser begitu selesai diproses
@@ -85,7 +88,30 @@ def pilih_format_tanpa_watermark(formats):
     return None
 
 
-def jalankan_job(job_id, links, mode, no_watermark):
+def bangun_format_video(quality):
+    """Susun format-selector yt-dlp berdasarkan kualitas yang dipilih.
+    Video dan audio diambil terpisah (DASH) lalu digabung FFmpeg,
+    supaya resolusi tinggi seperti 1080p tetap bisa didapat dari
+    YouTube (bukan cuma stream gabungan bawaan yang sering mentok
+    di 720p/360p)."""
+
+    batas = {
+        "1080p": 1080,
+        "720p": 720,
+        "480p": 480,
+    }.get(quality)
+
+    if batas:
+        return (
+            f"bestvideo[ext=mp4][height<={batas}]+bestaudio[ext=m4a]/"
+            f"best[height<={batas}]/best"
+        )
+
+    # "terbaik" / default: ambil resolusi tertinggi yang tersedia
+    return "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
+
+
+def jalankan_job(job_id, links, mode, no_watermark, quality):
 
     for item in JOBS[job_id]["items"]:
         url = item["url"]
@@ -124,7 +150,8 @@ def jalankan_job(job_id, links, mode, no_watermark):
                 "preferredquality": "192",
             }]
         else:
-            opsi["format"] = "mp4/best"
+            opsi["format"] = bangun_format_video(quality)
+            opsi["merge_output_format"] = "mp4"
 
         try:
             with JOBS_LOCK:
@@ -191,6 +218,7 @@ def start():
     links_raw = data.get("links", "")
     mode = data.get("mode", "video")
     no_watermark = bool(data.get("no_watermark", True))
+    quality = data.get("quality", "best")
 
     links = [l.strip() for l in links_raw.splitlines() if l.strip()]
 
@@ -217,7 +245,7 @@ def start():
         }
 
     thread = threading.Thread(
-        target=jalankan_job, args=(job_id, links, mode, no_watermark), daemon=True
+        target=jalankan_job, args=(job_id, links, mode, no_watermark, quality), daemon=True
     )
     thread.start()
 
@@ -532,6 +560,23 @@ textarea:focus{
     background:var(--cyan);
 }
 
+.quality-select{
+    background:var(--bg-soft);
+    border:1px solid var(--line);
+    color:var(--ink);
+    font-size:13px;
+    font-family:'Inter',sans-serif;
+    padding:9px 12px;
+    border-radius:10px;
+    cursor:pointer;
+    outline:none;
+}
+
+.quality-select:focus{
+    border-color:var(--cyan);
+    box-shadow:0 0 0 3px rgba(37,244,238,.12);
+}
+
 button.mulai{
     width:100%;
     margin-top:20px;
@@ -719,6 +764,16 @@ https://www.youtube.com/watch?v=xxxxxxx"></textarea>
         </label>
     </div>
 
+    <div class="opsi-row" id="barisKualitas">
+        <label class="field-label" for="quality" style="flex-shrink:0;">Kualitas video</label>
+        <select id="quality" class="quality-select">
+            <option value="best">Terbaik (resolusi tertinggi)</option>
+            <option value="1080p">1080p</option>
+            <option value="720p">720p</option>
+            <option value="480p">480p</option>
+        </select>
+    </div>
+
     <button class="mulai" id="btnMulai">⬇  Mulai Unduh</button>
 
 </div>
@@ -764,6 +819,18 @@ btnClear.addEventListener("click", () => {
     linksBox.focus();
 });
 
+const barisKualitas = document.getElementById("barisKualitas");
+
+function toggleBarisKualitas(){
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    barisKualitas.style.display = (mode === "audio") ? "none" : "flex";
+}
+
+document.querySelectorAll('input[name="mode"]').forEach(el => {
+    el.addEventListener("change", toggleBarisKualitas);
+});
+toggleBarisKualitas();
+
 btnMulai.addEventListener("click", async () => {
 
     const links = linksBox.value.trim();
@@ -774,6 +841,7 @@ btnMulai.addEventListener("click", async () => {
 
     const mode = document.querySelector('input[name="mode"]:checked').value;
     const noWatermark = document.getElementById("nowm").checked;
+    const quality = document.getElementById("quality").value;
 
     btnMulai.disabled = true;
     btnMulai.textContent = "Memulai...";
@@ -786,7 +854,7 @@ btnMulai.addEventListener("click", async () => {
         const res = await fetch("/start", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ links, mode, no_watermark: noWatermark })
+            body: JSON.stringify({ links, mode, no_watermark: noWatermark, quality })
         });
 
         const data = await res.json();
